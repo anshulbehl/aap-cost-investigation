@@ -1,0 +1,63 @@
+---
+- name: EC2 Tag Compliance Report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: "{{ region | default('us-east-1') }}"
+    required_tags:
+      - Name
+      - Environment
+      - Owner
+      - CostCenter
+
+  tasks:
+    - name: Gather all EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+      register: ec2_instances
+
+    - name: Check tag compliance for each instance
+      ansible.builtin.set_fact:
+        compliance_results: >-
+          {{
+            compliance_results | default([]) + [{
+              'instance_id': item.instance_id,
+              'instance_type': item.instance_type,
+              'state': item.state.name,
+              'name': item.tags.Name | default('UNTAGGED'),
+              'existing_tags': item.tags | default({}) | dict2items | map(attribute='key') | list,
+              'missing_tags': required_tags | difference(item.tags | default({}) | dict2items | map(attribute='key') | list),
+              'compliant': (required_tags | difference(item.tags | default({}) | dict2items | map(attribute='key') | list)) | length == 0
+            }]
+          }}
+      loop: "{{ ec2_instances.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }}"
+
+    - name: Display compliance summary
+      ansible.builtin.debug:
+        msg:
+          total_instances: "{{ compliance_results | length }}"
+          compliant: "{{ compliance_results | selectattr('compliant') | list | length }}"
+          non_compliant: "{{ compliance_results | rejectattr('compliant') | list | length }}"
+          compliance_rate: "{{ '%0.1f' | format((compliance_results | selectattr('compliant') | list | length) / (compliance_results | length) * 100) }}%"
+          required_tags: "{{ required_tags }}"
+
+    - name: Display non-compliant instances
+      ansible.builtin.debug:
+        msg:
+          instance_id: "{{ item.instance_id }}"
+          instance_type: "{{ item.instance_type }}"
+          name: "{{ item.name }}"
+          missing_tags: "{{ item.missing_tags }}"
+      loop: "{{ compliance_results | rejectattr('compliant') | list }}"
+      loop_control:
+        label: "{{ item.instance_id }}"
+
+    - name: Set stats for workflow artifact passing
+      ansible.builtin.set_stats:
+        data:
+          ec2_compliance_rate: "{{ (compliance_results | selectattr('compliant') | list | length) / (compliance_results | length) * 100 }}"
+          ec2_non_compliant_instances: "{{ compliance_results | rejectattr('compliant') | list }}"

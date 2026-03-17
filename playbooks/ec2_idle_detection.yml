@@ -1,0 +1,74 @@
+---
+- name: Detect Idle EC2 Instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: "{{ region | default('us-east-1') }}"
+    cpu_threshold: "{{ idle_cpu_threshold | default(5) }}"
+    days_to_check: "{{ idle_days | default(7) }}"
+    network_threshold_bytes: "{{ idle_network_threshold | default(1048576) }}"
+
+  tasks:
+    - name: Gather running EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          instance-state-name: running
+      register: ec2_instances
+
+    - name: Gather facts for date calculations
+      ansible.builtin.setup:
+        filter: ansible_date_time
+
+    - name: Get CPU metrics for each instance
+      amazon.aws.cloudwatch_metric_statistics:
+        region: "{{ aws_region }}"
+        namespace: AWS/EC2
+        metric_name: CPUUtilization
+        dimensions:
+          InstanceId: "{{ item.instance_id }}"
+        start_time: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - (days_to_check | int * 86400)) }}"
+        end_time: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int) }}"
+        period: 86400
+        statistics:
+          - Average
+      loop: "{{ ec2_instances.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }}"
+      register: cpu_metrics
+
+    - name: Identify idle instances
+      ansible.builtin.set_fact:
+        idle_instances: >-
+          {{
+            idle_instances | default([]) + [{
+              'instance_id': item.item.instance_id,
+              'instance_type': item.item.instance_type,
+              'name': item.item.tags.Name | default('UNTAGGED'),
+              'launch_time': item.item.launch_time,
+              'avg_cpu': avg_cpu,
+              'is_idle': avg_cpu < (cpu_threshold | float)
+            }]
+          }}
+      vars:
+        datapoints: "{{ item.datapoints | default([]) }}"
+        avg_cpu: "{{ (datapoints | map(attribute='average') | list | sum) / (datapoints | length) if datapoints | length > 0 else 0 }}"
+      loop: "{{ cpu_metrics.results }}"
+      loop_control:
+        label: "{{ item.item.instance_id }}"
+
+    - name: Display idle instances
+      ansible.builtin.debug:
+        msg:
+          idle_instances: "{{ idle_instances | selectattr('is_idle') | list }}"
+          idle_count: "{{ idle_instances | selectattr('is_idle') | list | length }}"
+          total_checked: "{{ idle_instances | length }}"
+          threshold: "{{ cpu_threshold }}% average CPU over {{ days_to_check }} days"
+
+    - name: Set stats for workflow artifact passing
+      ansible.builtin.set_stats:
+        data:
+          ec2_idle_instances: "{{ idle_instances | selectattr('is_idle') | list }}"
+          ec2_idle_count: "{{ idle_instances | selectattr('is_idle') | list | length }}"

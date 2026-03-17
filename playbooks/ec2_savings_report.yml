@@ -1,0 +1,124 @@
+---
+- name: EC2 Cost Savings Report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: "{{ region | default('us-east-1') }}"
+    hours_per_month: 730
+
+    # On-demand pricing (US East 1, Linux) -- update as needed
+    pricing:
+      t3.micro: 0.0104
+      t3.small: 0.0208
+      t3.medium: 0.0416
+      t3.large: 0.0832
+      t3.xlarge: 0.1664
+      t3.2xlarge: 0.3328
+      m6i.large: 0.096
+      m6i.xlarge: 0.192
+      m6i.2xlarge: 0.384
+      m6i.4xlarge: 0.768
+      m7i.large: 0.1008
+      m7i.xlarge: 0.2016
+      c6i.large: 0.085
+      c6i.xlarge: 0.17
+      c6i.2xlarge: 0.34
+      c7i.large: 0.0893
+      c7i.xlarge: 0.1786
+      r6i.large: 0.126
+      r6i.xlarge: 0.252
+      r6i.2xlarge: 0.504
+      r7i.large: 0.1323
+      g4dn.xlarge: 0.526
+      g5.xlarge: 1.006
+      p3.2xlarge: 3.06
+      i3.large: 0.156
+      i3.xlarge: 0.312
+
+    # Rightsizing map -- suggest one size down
+    downsize_map:
+      t3.2xlarge: t3.xlarge
+      t3.xlarge: t3.large
+      t3.large: t3.medium
+      t3.medium: t3.small
+      t3.small: t3.micro
+      m6i.4xlarge: m6i.2xlarge
+      m6i.2xlarge: m6i.xlarge
+      m6i.xlarge: m6i.large
+      m7i.xlarge: m7i.large
+      c6i.2xlarge: c6i.xlarge
+      c6i.xlarge: c6i.large
+      c7i.xlarge: c7i.large
+      r6i.2xlarge: r6i.xlarge
+      r6i.xlarge: r6i.large
+
+  tasks:
+    - name: Gather running EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          instance-state-name: running
+      register: running_instances
+
+    - name: Gather stopped EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          instance-state-name: stopped
+      register: stopped_instances
+
+    - name: Calculate current monthly spend for running instances
+      ansible.builtin.set_fact:
+        running_costs: >-
+          {{
+            running_costs | default([]) + [{
+              'instance_id': item.instance_id,
+              'instance_type': item.instance_type,
+              'name': item.tags.Name | default('UNTAGGED'),
+              'hourly_cost': pricing[item.instance_type] | default(0),
+              'monthly_cost': (pricing[item.instance_type] | default(0)) * hours_per_month,
+              'downsize_to': downsize_map[item.instance_type] | default('N/A'),
+              'downsize_savings': ((pricing[item.instance_type] | default(0)) - (pricing[downsize_map[item.instance_type] | default(item.instance_type)] | default(0))) * hours_per_month
+            }]
+          }}
+      loop: "{{ running_instances.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }} ({{ item.instance_type }})"
+
+    - name: Calculate total current spend
+      ansible.builtin.set_fact:
+        total_monthly_spend: "{{ running_costs | map(attribute='monthly_cost') | sum | round(2) }}"
+        total_rightsizing_savings: "{{ running_costs | map(attribute='downsize_savings') | sum | round(2) }}"
+
+    - name: Display cost summary
+      ansible.builtin.debug:
+        msg:
+          region: "{{ aws_region }}"
+          running_instances: "{{ running_instances.instances | length }}"
+          stopped_instances: "{{ stopped_instances.instances | length }}"
+          estimated_monthly_spend: "${{ total_monthly_spend }}"
+          potential_rightsizing_savings: "${{ total_rightsizing_savings }}"
+          stopped_instance_ebs_waste: "Check EBS volumes attached to {{ stopped_instances.instances | length }} stopped instances"
+
+    - name: Display top cost drivers
+      ansible.builtin.debug:
+        msg:
+          instance_id: "{{ item.instance_id }}"
+          name: "{{ item.name }}"
+          type: "{{ item.instance_type }}"
+          monthly_cost: "${{ '%0.2f' | format(item.monthly_cost) }}"
+          rightsizing_option: "{{ item.downsize_to }}"
+          potential_monthly_savings: "${{ '%0.2f' | format(item.downsize_savings) }}"
+      loop: "{{ running_costs | sort(attribute='monthly_cost', reverse=true) }}"
+      loop_control:
+        label: "{{ item.instance_id }} (${{ '%0.2f' | format(item.monthly_cost) }}/mo)"
+
+    - name: Set stats for workflow artifact passing
+      ansible.builtin.set_stats:
+        data:
+          ec2_monthly_spend: "{{ total_monthly_spend }}"
+          ec2_rightsizing_savings: "{{ total_rightsizing_savings }}"
+          ec2_cost_details: "{{ running_costs }}"
+          ec2_stopped_count: "{{ stopped_instances.instances | length }}"

@@ -1,0 +1,69 @@
+---
+- name: EC2 Inventory and Cost Report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: "{{ region | default('us-east-1') }}"
+    include_stopped: "{{ include_stopped_instances | default(true) }}"
+
+  tasks:
+    - name: Gather all EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters: "{{ omit if include_stopped else {'instance-state-name': 'running'} }}"
+      register: ec2_instances
+
+    - name: Build instance summary
+      ansible.builtin.set_fact:
+        instance_summary: >-
+          {{
+            ec2_instances.instances | map('combine', {})
+            | map('dict2items')
+            | list
+          }}
+        running_count: "{{ ec2_instances.instances | selectattr('state.name', 'equalto', 'running') | list | length }}"
+        stopped_count: "{{ ec2_instances.instances | selectattr('state.name', 'equalto', 'stopped') | list | length }}"
+        total_count: "{{ ec2_instances.instances | length }}"
+
+    - name: Display instance overview
+      ansible.builtin.debug:
+        msg:
+          total_instances: "{{ total_count }}"
+          running: "{{ running_count }}"
+          stopped: "{{ stopped_count }}"
+          region: "{{ aws_region }}"
+
+    - name: Display instance details
+      ansible.builtin.debug:
+        msg:
+          instance_id: "{{ item.instance_id }}"
+          instance_type: "{{ item.instance_type }}"
+          state: "{{ item.state.name }}"
+          launch_time: "{{ item.launch_time }}"
+          private_ip: "{{ item.private_ip_address | default('N/A') }}"
+          public_ip: "{{ item.public_ip_address | default('N/A') }}"
+          name: "{{ item.tags.Name | default('UNTAGGED') }}"
+          environment: "{{ item.tags.Environment | default('UNTAGGED') }}"
+          owner: "{{ item.tags.Owner | default('UNTAGGED') }}"
+          cost_center: "{{ item.tags.CostCenter | default('UNTAGGED') }}"
+          platform: "{{ item.platform_details | default('Linux/UNIX') }}"
+          vpc_id: "{{ item.vpc_id | default('N/A') }}"
+          subnet_id: "{{ item.subnet_id | default('N/A') }}"
+      loop: "{{ ec2_instances.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }} ({{ item.instance_type }})"
+
+    - name: Group instances by type
+      ansible.builtin.debug:
+        msg: "{{ ec2_instances.instances | map(attribute='instance_type') | list | community.general.counter }}"
+
+    - name: Set stats for workflow artifact passing
+      ansible.builtin.set_stats:
+        data:
+          ec2_total_instances: "{{ total_count }}"
+          ec2_running_instances: "{{ running_count }}"
+          ec2_stopped_instances: "{{ stopped_count }}"
+          ec2_instance_types: "{{ ec2_instances.instances | map(attribute='instance_type') | list | community.general.counter }}"
+          ec2_region: "{{ aws_region }}"
