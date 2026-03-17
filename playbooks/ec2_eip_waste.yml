@@ -1,0 +1,81 @@
+---
+- name: EC2 Elastic IP Waste Detection
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
+
+  tasks:
+    - name: Load configuration defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/defaults.yml"
+        name: config
+
+    - name: Verify configuration loaded
+      ansible.builtin.assert:
+        that:
+          - config is defined
+          - config.aws is defined
+        fail_msg: >
+          Configuration file not found. Ensure the project root contains config/defaults.yml.
+
+    - name: Load pricing data
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/{{ config.pricing.file | default('pricing-us-east-1.yml') }}"
+        name: pricing_data
+      ignore_errors: true
+      register: pricing_load_result
+
+    - name: Set EIP pricing
+      ansible.builtin.set_fact:
+        eip_hourly_cost: "{{ pricing_data.eip_pricing.unattached_hourly | default(0.005) }}"
+        hours_per_month: "{{ (config.pricing.hours_per_month | default(730)) | int }}"
+
+    - name: Gather all Elastic IPs
+      amazon.aws.ec2_eip_info:
+        region: "{{ aws_region }}"
+      register: all_eips
+
+    - name: Identify unattached Elastic IPs
+      ansible.builtin.set_fact:
+        unattached_eips: >-
+          {{
+            all_eips.addresses
+            | rejectattr('instance_id', 'defined')
+            | list
+          }}
+
+    - name: Build unattached EIP details
+      ansible.builtin.set_fact:
+        eip_details: >-
+          {{
+            eip_details | default([]) + [{
+              'allocation_id': item.allocation_id,
+              'public_ip': item.public_ip,
+              'monthly_waste': (eip_hourly_cost | float) * (hours_per_month | int)
+            }]
+          }}
+      loop: "{{ unattached_eips }}"
+      loop_control:
+        label: "{{ item.public_ip }}"
+      when: unattached_eips | length > 0
+
+    - name: Calculate total EIP waste
+      ansible.builtin.set_fact:
+        eip_monthly_waste: "{{ ((unattached_eips | length) * (eip_hourly_cost | float) * (hours_per_month | int)) | round(2) }}"
+
+    - name: Display EIP waste summary
+      ansible.builtin.debug:
+        msg:
+          total_eips: "{{ all_eips.addresses | length }}"
+          unattached_eips: "{{ unattached_eips | length }}"
+          monthly_waste: "${{ eip_monthly_waste }}"
+
+    - name: Set stats for workflow artifact passing
+      ansible.builtin.set_stats:
+        data:
+          ec2_eip_unattached: "{{ eip_details | default([]) }}"
+          ec2_eip_unattached_count: "{{ unattached_eips | length }}"
+          ec2_eip_monthly_waste: "{{ eip_monthly_waste }}"
