@@ -56,8 +56,17 @@
         label: "{{ item.instance_id }} ({{ item.instance_type }})"
 
     - name: Group instances by type
+      ansible.builtin.set_fact:
+        instance_type_counts: >-
+          {% set counts = {} %}
+          {% for inst in ec2_instances.instances %}
+          {%   set _ = counts.update({inst.instance_type: counts.get(inst.instance_type, 0) + 1}) %}
+          {% endfor %}
+          {{ counts }}
+
+    - name: Display instance type counts
       ansible.builtin.debug:
-        msg: "{{ ec2_instances.instances | map(attribute='instance_type') | list | community.general.counter }}"
+        msg: "{{ instance_type_counts }}"
 
     - name: Set stats for workflow artifact passing
       ansible.builtin.set_stats:
@@ -65,5 +74,5 @@
           ec2_total_instances: "{{ total_count }}"
           ec2_running_instances: "{{ running_count }}"
           ec2_stopped_instances: "{{ stopped_count }}"
-          ec2_instance_types: "{{ ec2_instances.instances | map(attribute='instance_type') | list | community.general.counter }}"
+          ec2_instance_types: "{{ instance_type_counts }}"
           ec2_region: "{{ aws_region }}"
