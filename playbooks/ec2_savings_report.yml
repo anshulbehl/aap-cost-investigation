@@ -54,11 +54,15 @@
           instance-state-name: stopped
       register: stopped_instances
 
+    - name: Initialize running costs
+      ansible.builtin.set_fact:
+        running_costs: []
+
     - name: Calculate current monthly spend for running instances
       ansible.builtin.set_fact:
         running_costs: >-
           {{
-            running_costs | default([]) + [{
+            running_costs + [{
               'instance_id': item.instance_id,
               'instance_type': item.instance_type,
               'name': item.tags.Name | default('UNTAGGED'),

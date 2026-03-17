@@ -8,7 +8,10 @@ tags:
     - Environment
     - Owner
     - CostCenter
-  aliases: {}
+  aliases:
+    Owner: owner
+    Environment: environment
+    CostCenter: cost-center
 
 thresholds:
   idle_cpu_percent: 5
