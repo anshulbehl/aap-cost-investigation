@@ -18,26 +18,35 @@
           instance-state-name: running
       register: ec2_instances
 
-    - name: Gather facts for date calculations
-      ansible.builtin.setup:
-        filter: ansible_date_time
+    - name: Get CPU metrics for each instance via boto3
+      ansible.builtin.shell:
+        cmd: |
+          python3 -c "
+          import boto3, json
+          from datetime import datetime, timedelta, timezone
 
-    - name: Get CPU metrics for each instance
-      amazon.aws.cloudwatch_metric_statistics:
-        region: "{{ aws_region }}"
-        namespace: AWS/EC2
-        metric_name: CPUUtilization
-        dimensions:
-          InstanceId: "{{ item.instance_id }}"
-        start_time: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - (days_to_check | int * 86400)) }}"
-        end_time: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int) }}"
-        period: 86400
-        statistics:
-          - Average
+          cw = boto3.client('cloudwatch', region_name='{{ aws_region }}')
+          resp = cw.get_metric_statistics(
+              Namespace='AWS/EC2',
+              MetricName='CPUUtilization',
+              Dimensions=[{'Name': 'InstanceId', 'Value': '{{ item.instance_id }}'}],
+              StartTime=datetime.now(timezone.utc) - timedelta(days={{ days_to_check | int }}),
+              EndTime=datetime.now(timezone.utc),
+              Period=86400,
+              Statistics=['Average']
+          )
+          datapoints = resp.get('Datapoints', [])
+          if datapoints:
+              avg = sum(d['Average'] for d in datapoints) / len(datapoints)
+          else:
+              avg = 0.0
+          print(json.dumps({'avg_cpu': round(avg, 2), 'datapoints_count': len(datapoints)}))
+          "
       loop: "{{ ec2_instances.instances }}"
       loop_control:
         label: "{{ item.instance_id }}"
       register: cpu_metrics
+      changed_when: false
 
     - name: Identify idle instances
       ansible.builtin.set_fact:
@@ -48,13 +57,12 @@
               'instance_type': item.item.instance_type,
               'name': item.item.tags.Name | default('UNTAGGED'),
               'launch_time': item.item.launch_time,
-              'avg_cpu': avg_cpu,
-              'is_idle': avg_cpu < (cpu_threshold | float)
+              'avg_cpu': metrics.avg_cpu,
+              'is_idle': metrics.avg_cpu < (cpu_threshold | float)
             }]
           }}
       vars:
-        datapoints: "{{ item.datapoints | default([]) }}"
-        avg_cpu: "{{ (datapoints | map(attribute='average') | list | sum) / (datapoints | length) if datapoints | length > 0 else 0 }}"
+        metrics: "{{ item.stdout | from_json }}"
       loop: "{{ cpu_metrics.results }}"
       loop_control:
         label: "{{ item.item.instance_id }}"
