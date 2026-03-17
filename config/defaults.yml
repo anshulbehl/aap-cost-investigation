@@ -1,0 +1,35 @@
+---
+aws:
+  region: us-east-1
+
+tags:
+  required:
+    - Name
+    - Environment
+    - Owner
+    - CostCenter
+  aliases: {}
+
+thresholds:
+  idle_cpu_percent: 5
+  idle_days: 7
+  idle_network_bytes: 1048576
+
+pricing:
+  file: pricing-us-east-1.yml
+  hours_per_month: 730
+
+job_templates:
+  inventory_report: auto
+  idle_detection: auto
+  tag_compliance: auto
+  savings_report: auto
+  ebs_waste: auto
+  eip_waste: auto
+  search_keywords:
+    inventory_report: "EC2 Inventory Report"
+    idle_detection: "EC2 Idle Detection"
+    tag_compliance: "EC2 Tag Compliance"
+    savings_report: "EC2 Savings Report"
+    ebs_waste: "EC2 EBS Waste"
+    eip_waste: "EC2 EIP Waste"

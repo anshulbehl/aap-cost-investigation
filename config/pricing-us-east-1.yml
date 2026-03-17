@@ -1,0 +1,130 @@
+---
+# On-demand hourly rates (USD, Linux)
+hourly_rates:
+  # General Purpose
+  t2.nano: 0.0058
+  t2.micro: 0.0116
+  t2.small: 0.0230
+  t2.medium: 0.0464
+  t2.large: 0.0928
+  t2.xlarge: 0.1856
+  t2.2xlarge: 0.3712
+  t3.micro: 0.0104
+  t3.small: 0.0208
+  t3.medium: 0.0416
+  t3.large: 0.0832
+  t3.xlarge: 0.1664
+  t3.2xlarge: 0.3328
+  t3a.micro: 0.0094
+  t3a.small: 0.0188
+  t3a.medium: 0.0376
+  t3a.large: 0.0752
+  t3a.xlarge: 0.1504
+  t3a.2xlarge: 0.3008
+  m4.large: 0.1000
+  m4.xlarge: 0.2000
+  m4.2xlarge: 0.4000
+  m4.4xlarge: 0.8000
+  m5.large: 0.0960
+  m5.xlarge: 0.1920
+  m5.2xlarge: 0.3840
+  m5.4xlarge: 0.7680
+  m5a.large: 0.0864
+  m5a.xlarge: 0.1728
+  m6i.large: 0.0960
+  m6i.xlarge: 0.1920
+  m6i.2xlarge: 0.3840
+  m6i.4xlarge: 0.7680
+  m7i.large: 0.1008
+  m7i.xlarge: 0.2016
+  # Compute Optimized
+  c4.xlarge: 0.1990
+  c5.large: 0.0850
+  c5.xlarge: 0.1700
+  c5.2xlarge: 0.3400
+  c5n.xlarge: 0.2160
+  c6i.large: 0.0850
+  c6i.xlarge: 0.1700
+  c6i.2xlarge: 0.3400
+  c6g.medium: 0.0340
+  c7i.large: 0.0893
+  c7i.xlarge: 0.1786
+  # Memory Optimized
+  r5.large: 0.1260
+  r5.xlarge: 0.2520
+  r6i.large: 0.1260
+  r6i.xlarge: 0.2520
+  r6i.2xlarge: 0.5040
+  r7i.large: 0.1323
+  # GPU / Accelerated
+  g4dn.xlarge: 0.5260
+  g5.xlarge: 1.0060
+  g6.xlarge: 0.5049
+  g6.2xlarge: 0.9776
+  p3.2xlarge: 3.0600
+  # Storage Optimized
+  i3.large: 0.1560
+  i3.xlarge: 0.3120
+  # Burstable (Graviton)
+  t4g.micro: 0.0084
+  t4g.small: 0.0168
+  t4g.medium: 0.0336
+  t4g.large: 0.0672
+  t4g.xlarge: 0.1344
+  t4g.2xlarge: 0.2688
+
+# Rightsizing map: current_type -> recommended smaller type
+downsize_map:
+  t2.2xlarge: t2.xlarge
+  t2.xlarge: t2.large
+  t2.large: t2.medium
+  t2.medium: t2.small
+  t2.small: t2.micro
+  t3.2xlarge: t3.xlarge
+  t3.xlarge: t3.large
+  t3.large: t3.medium
+  t3.medium: t3.small
+  t3.small: t3.micro
+  t3a.2xlarge: t3a.xlarge
+  t3a.xlarge: t3a.large
+  t3a.large: t3a.medium
+  t3a.medium: t3a.small
+  t3a.small: t3a.micro
+  m4.4xlarge: m4.2xlarge
+  m4.2xlarge: m4.xlarge
+  m4.xlarge: m4.large
+  m5.4xlarge: m5.2xlarge
+  m5.2xlarge: m5.xlarge
+  m5.xlarge: m5.large
+  m6i.4xlarge: m6i.2xlarge
+  m6i.2xlarge: m6i.xlarge
+  m6i.xlarge: m6i.large
+  m7i.xlarge: m7i.large
+  c5.2xlarge: c5.xlarge
+  c5.xlarge: c5.large
+  c6i.2xlarge: c6i.xlarge
+  c6i.xlarge: c6i.large
+  c7i.xlarge: c7i.large
+  r5.xlarge: r5.large
+  r6i.2xlarge: r6i.xlarge
+  r6i.xlarge: r6i.large
+  t4g.2xlarge: t4g.xlarge
+  t4g.xlarge: t4g.large
+  t4g.large: t4g.medium
+  t4g.medium: t4g.small
+  t4g.small: t4g.micro
+
+# EBS pricing (per GB per month)
+# Note: io1/io2 IOPS charges ($0.065/provisioned IOPS-month) are not included
+ebs_pricing:
+  gp2: 0.10
+  gp3: 0.08
+  io1: 0.125
+  io2: 0.125
+  st1: 0.045
+  sc1: 0.015
+  standard: 0.05
+
+# Elastic IP pricing (per hour when not attached to running instance)
+eip_pricing:
+  unattached_hourly: 0.005
