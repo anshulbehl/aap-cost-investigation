@@ -42,8 +42,8 @@
               'state': item.state.name,
               'name': item.tags.Name | default(item.tags.name | default('UNTAGGED')),
               'existing_tags': instance_tag_keys,
-              'missing_tags': missing,
-              'compliant': missing | length == 0
+              'missing_tags': missing | from_yaml | default([]),
+              'compliant': (missing | from_yaml | default([]) | length) == 0
             }]
           }}
       vars:
