@@ -5,12 +5,26 @@
   gather_facts: false
 
   vars:
-    aws_region: "{{ region | default('us-east-1') }}"
-    cpu_threshold: "{{ idle_cpu_threshold | default(5) }}"
-    days_to_check: "{{ idle_days | default(7) }}"
-    network_threshold_bytes: "{{ idle_network_threshold | default(1048576) }}"
+    aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
+    cpu_threshold: "{{ idle_cpu_threshold | default(config.thresholds.idle_cpu_percent | default(5)) }}"
+    days_to_check: "{{ idle_days | default(config.thresholds.idle_days | default(7)) }}"
+    network_threshold_bytes: "{{ idle_network_threshold | default(config.thresholds.idle_network_bytes | default(1048576)) }}"
 
   tasks:
+    - name: Load configuration defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/defaults.yml"
+        name: config
+
+    - name: Verify configuration loaded
+      ansible.builtin.assert:
+        that:
+          - config is defined
+          - config.aws is defined
+          - config.aws.region is defined
+        fail_msg: >
+          Configuration file not found. Ensure the project root contains config/defaults.yml.
+
     - name: Gather running EC2 instances
       amazon.aws.ec2_instance_info:
         region: "{{ aws_region }}"
