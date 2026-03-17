@@ -63,9 +63,9 @@
               'instance_type': item.instance_type,
               'name': item.tags.Name | default('UNTAGGED'),
               'hourly_cost': pricing[item.instance_type] | default(0),
-              'monthly_cost': (pricing[item.instance_type] | default(0)) * hours_per_month,
+              'monthly_cost': (pricing[item.instance_type] | default(0) | float) * (hours_per_month | int),
               'downsize_to': downsize_map[item.instance_type] | default('N/A'),
-              'downsize_savings': ((pricing[item.instance_type] | default(0)) - (pricing[downsize_map[item.instance_type] | default(item.instance_type)] | default(0))) * hours_per_month
+              'downsize_savings': ((pricing[item.instance_type] | default(0) | float) - (pricing[downsize_map[item.instance_type] | default(item.instance_type)] | default(0) | float)) * (hours_per_month | int)
             }]
           }}
       loop: "{{ running_instances.instances }}"
