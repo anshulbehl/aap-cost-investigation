@@ -5,14 +5,25 @@
   gather_facts: false
 
   vars:
-    aws_region: "{{ region | default('us-east-1') }}"
-    required_tags:
-      - Name
-      - Environment
-      - Owner
-      - CostCenter
+    aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
+    required_tags: "{{ required_tags | default(config.tags.required | default(['Name', 'Environment', 'Owner', 'CostCenter'])) }}"
+    tag_aliases: "{{ tag_aliases | default(config.tags.aliases | default({})) }}"
 
   tasks:
+    - name: Load configuration defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/defaults.yml"
+        name: config
+
+    - name: Verify configuration loaded
+      ansible.builtin.assert:
+        that:
+          - config is defined
+          - config.aws is defined
+          - config.aws.region is defined
+        fail_msg: >
+          Configuration file not found. Ensure the project root contains config/defaults.yml.
+
     - name: Gather all EC2 instances
       amazon.aws.ec2_instance_info:
         region: "{{ aws_region }}"
@@ -26,12 +37,23 @@
               'instance_id': item.instance_id,
               'instance_type': item.instance_type,
               'state': item.state.name,
-              'name': item.tags.Name | default('UNTAGGED'),
-              'existing_tags': item.tags | default({}) | dict2items | map(attribute='key') | list,
-              'missing_tags': required_tags | difference(item.tags | default({}) | dict2items | map(attribute='key') | list),
-              'compliant': (required_tags | difference(item.tags | default({}) | dict2items | map(attribute='key') | list)) | length == 0
+              'name': item.tags.Name | default(item.tags.name | default('UNTAGGED')),
+              'existing_tags': instance_tag_keys,
+              'missing_tags': missing,
+              'compliant': missing | length == 0
             }]
           }}
+      vars:
+        instance_tag_keys: "{{ item.tags | default({}) | dict2items | map(attribute='key') | list }}"
+        missing: >-
+          {% set result = [] %}
+          {% for tag in required_tags %}
+          {%   set alias = tag_aliases[tag] | default(tag) %}
+          {%   if tag not in instance_tag_keys and alias not in instance_tag_keys %}
+          {%     set _ = result.append(tag) %}
+          {%   endif %}
+          {% endfor %}
+          {{ result }}
       loop: "{{ ec2_instances.instances }}"
       loop_control:
         label: "{{ item.instance_id }}"
