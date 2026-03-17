@@ -1,0 +1,134 @@
+---
+- name: EC2 EBS Waste Detection
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
+
+  tasks:
+    - name: Load configuration defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/defaults.yml"
+        name: config
+
+    - name: Verify configuration loaded
+      ansible.builtin.assert:
+        that:
+          - config is defined
+          - config.aws is defined
+        fail_msg: >
+          Configuration file not found. Ensure the project root contains config/defaults.yml.
+
+    - name: Load pricing data
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/{{ config.pricing.file | default('pricing-us-east-1.yml') }}"
+        name: pricing_data
+      ignore_errors: true
+      register: pricing_load_result
+
+    - name: Set EBS pricing defaults
+      ansible.builtin.set_fact:
+        ebs_pricing: "{{ pricing_data.ebs_pricing | default({'gp2': 0.10, 'gp3': 0.08, 'io1': 0.125, 'io2': 0.125, 'st1': 0.045, 'sc1': 0.015, 'standard': 0.05}) }}"
+
+    - name: Gather all EBS volumes
+      amazon.aws.ec2_vol_info:
+        region: "{{ aws_region }}"
+      register: all_volumes
+
+    - name: Gather stopped EC2 instances
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          instance-state-name: stopped
+      register: stopped_instances
+
+    - name: Build stopped instance ID list
+      ansible.builtin.set_fact:
+        stopped_ids: "{{ stopped_instances.instances | map(attribute='instance_id') | list }}"
+
+    - name: Identify unattached volumes
+      ansible.builtin.set_fact:
+        unattached_volumes: >-
+          {{
+            all_volumes.volumes
+            | selectattr('status', 'equalto', 'available')
+            | list
+          }}
+
+    - name: Identify volumes attached to stopped instances
+      ansible.builtin.set_fact:
+        stopped_attached_volumes: >-
+          {% set result = [] %}
+          {% for vol in all_volumes.volumes if vol.status == 'in-use' %}
+          {%   for att in vol.attachments | default([]) %}
+          {%     if att.instance_id in stopped_ids %}
+          {%       set _ = result.append(vol) %}
+          {%     endif %}
+          {%   endfor %}
+          {% endfor %}
+          {{ result }}
+      when: stopped_ids | length > 0
+
+    - name: Set empty stopped attached if no stopped instances
+      ansible.builtin.set_fact:
+        stopped_attached_volumes: []
+      when: stopped_ids | length == 0
+
+    - name: Calculate unattached volume costs
+      ansible.builtin.set_fact:
+        unattached_details: >-
+          {{
+            unattached_details | default([]) + [{
+              'volume_id': item.id,
+              'size_gb': item.size,
+              'volume_type': item.type,
+              'monthly_cost': (item.size | float) * (ebs_pricing[item.type] | default(0.08) | float),
+              'state': 'unattached',
+              'attached_instance': 'N/A'
+            }]
+          }}
+      loop: "{{ unattached_volumes }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - name: Calculate stopped-attached volume costs
+      ansible.builtin.set_fact:
+        stopped_details: >-
+          {{
+            stopped_details | default([]) + [{
+              'volume_id': item.id,
+              'size_gb': item.size,
+              'volume_type': item.type,
+              'monthly_cost': (item.size | float) * (ebs_pricing[item.type] | default(0.08) | float),
+              'state': 'stopped-attached',
+              'attached_instance': item.attachments[0].instance_id | default('unknown')
+            }]
+          }}
+      loop: "{{ stopped_attached_volumes }}"
+      loop_control:
+        label: "{{ item.id }}"
+      when: stopped_attached_volumes | length > 0
+
+    - name: Calculate totals
+      ansible.builtin.set_fact:
+        unattached_monthly_cost: "{{ (unattached_details | default([]) | map(attribute='monthly_cost') | sum) | round(2) }}"
+        stopped_monthly_cost: "{{ (stopped_details | default([]) | map(attribute='monthly_cost') | sum) | round(2) }}"
+
+    - name: Display EBS waste summary
+      ansible.builtin.debug:
+        msg:
+          total_volumes: "{{ all_volumes.volumes | length }}"
+          unattached_volumes: "{{ unattached_details | default([]) | length }}"
+          unattached_monthly_cost: "${{ unattached_monthly_cost }}"
+          stopped_attached_volumes: "{{ stopped_details | default([]) | length }}"
+          stopped_monthly_cost: "${{ stopped_monthly_cost }}"
+
+    - name: Set stats for workflow artifact passing
+      ansible.builtin.set_stats:
+        data:
+          ec2_ebs_unattached_volumes: "{{ unattached_details | default([]) }}"
+          ec2_ebs_unattached_cost: "{{ unattached_monthly_cost }}"
+          ec2_ebs_stopped_volumes: "{{ stopped_details | default([]) }}"
+          ec2_ebs_stopped_cost: "{{ stopped_monthly_cost }}"
