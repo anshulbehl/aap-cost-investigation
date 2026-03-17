@@ -57,24 +57,19 @@
             | list
           }}
 
-    - name: Identify volumes attached to stopped instances
-      ansible.builtin.set_fact:
-        stopped_attached_volumes: >-
-          {% set result = [] %}
-          {% for vol in all_volumes.volumes if vol.status == 'in-use' %}
-          {%   for att in vol.attachments | default([]) %}
-          {%     if att.instance_id in stopped_ids %}
-          {%       set _ = result.append(vol) %}
-          {%     endif %}
-          {%   endfor %}
-          {% endfor %}
-          {{ result }}
-      when: stopped_ids | length > 0
-
-    - name: Set empty stopped attached if no stopped instances
+    - name: Initialize stopped attached volumes
       ansible.builtin.set_fact:
         stopped_attached_volumes: []
-      when: stopped_ids | length == 0
+
+    - name: Find volumes attached to stopped instances
+      ansible.builtin.set_fact:
+        stopped_attached_volumes: "{{ stopped_attached_volumes + [item] }}"
+      loop: "{{ all_volumes.volumes | selectattr('status', 'equalto', 'in-use') | list }}"
+      when:
+        - stopped_ids | length > 0
+        - item.attachments | default([]) | map(attribute='instance_id') | list | intersect(stopped_ids) | length > 0
+      loop_control:
+        label: "{{ item.id }}"
 
     - name: Calculate unattached volume costs
       ansible.builtin.set_fact:
