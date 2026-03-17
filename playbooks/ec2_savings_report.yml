@@ -5,56 +5,38 @@
   gather_facts: false
 
   vars:
-    aws_region: "{{ region | default('us-east-1') }}"
-    hours_per_month: 730
-
-    # On-demand pricing (US East 1, Linux) -- update as needed
-    pricing:
-      t3.micro: 0.0104
-      t3.small: 0.0208
-      t3.medium: 0.0416
-      t3.large: 0.0832
-      t3.xlarge: 0.1664
-      t3.2xlarge: 0.3328
-      m6i.large: 0.096
-      m6i.xlarge: 0.192
-      m6i.2xlarge: 0.384
-      m6i.4xlarge: 0.768
-      m7i.large: 0.1008
-      m7i.xlarge: 0.2016
-      c6i.large: 0.085
-      c6i.xlarge: 0.17
-      c6i.2xlarge: 0.34
-      c7i.large: 0.0893
-      c7i.xlarge: 0.1786
-      r6i.large: 0.126
-      r6i.xlarge: 0.252
-      r6i.2xlarge: 0.504
-      r7i.large: 0.1323
-      g4dn.xlarge: 0.526
-      g5.xlarge: 1.006
-      p3.2xlarge: 3.06
-      i3.large: 0.156
-      i3.xlarge: 0.312
-
-    # Rightsizing map -- suggest one size down
-    downsize_map:
-      t3.2xlarge: t3.xlarge
-      t3.xlarge: t3.large
-      t3.large: t3.medium
-      t3.medium: t3.small
-      t3.small: t3.micro
-      m6i.4xlarge: m6i.2xlarge
-      m6i.2xlarge: m6i.xlarge
-      m6i.xlarge: m6i.large
-      m7i.xlarge: m7i.large
-      c6i.2xlarge: c6i.xlarge
-      c6i.xlarge: c6i.large
-      c7i.xlarge: c7i.large
-      r6i.2xlarge: r6i.xlarge
-      r6i.xlarge: r6i.large
+    aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
+    hours_per_month: "{{ config.pricing.hours_per_month | default(730) }}"
+    pricing: "{{ pricing_data.hourly_rates | default({}) }}"
+    downsize_map: "{{ pricing_data.downsize_map | default({}) }}"
 
   tasks:
+    - name: Load configuration defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/defaults.yml"
+        name: config
+
+    - name: Verify configuration loaded
+      ansible.builtin.assert:
+        that:
+          - config is defined
+          - config.aws is defined
+        fail_msg: >
+          Configuration file not found. Ensure the project root contains config/defaults.yml.
+
+    - name: Load pricing data
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/{{ config.pricing.file | default('pricing-us-east-1.yml') }}"
+        name: pricing_data
+      ignore_errors: true
+      register: pricing_load_result
+
+    - name: Warn if pricing file not found
+      ansible.builtin.debug:
+        msg: >
+          Pricing file not found. Instance costs will show as $0.
+      when: pricing_load_result is failed
+
     - name: Gather running EC2 instances
       amazon.aws.ec2_instance_info:
         region: "{{ aws_region }}"
