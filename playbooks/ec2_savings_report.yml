@@ -6,9 +6,6 @@
 
   vars:
     aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
-    hours_per_month: "{{ (config.pricing.hours_per_month | default(730)) | int }}"
-    pricing: "{{ pricing_data.hourly_rates | default({}) }}"
-    downsize_map: "{{ pricing_data.downsize_map | default({}) }}"
 
   tasks:
     - name: Load configuration defaults
@@ -36,6 +33,12 @@
         msg: >
           Pricing file not found. Instance costs will show as $0.
       when: pricing_load_result is failed
+
+    - name: Set effective pricing variables
+      ansible.builtin.set_fact:
+        hours_per_month: "{{ (config.pricing.hours_per_month | default(730)) | int }}"
+        pricing: "{{ pricing_data.hourly_rates | default({}) }}"
+        downsize_map: "{{ pricing_data.downsize_map | default({}) }}"
 
     - name: Gather running EC2 instances
       amazon.aws.ec2_instance_info:
