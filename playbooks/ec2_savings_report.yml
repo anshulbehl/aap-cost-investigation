@@ -6,7 +6,7 @@
 
   vars:
     aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
-    hours_per_month: "{{ config.pricing.hours_per_month | default(730) }}"
+    hours_per_month: "{{ (config.pricing.hours_per_month | default(730)) | int }}"
     pricing: "{{ pricing_data.hourly_rates | default({}) }}"
     downsize_map: "{{ pricing_data.downsize_map | default({}) }}"
 

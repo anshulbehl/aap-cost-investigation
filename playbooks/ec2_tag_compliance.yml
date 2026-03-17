@@ -6,8 +6,6 @@
 
   vars:
     aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
-    required_tags: "{{ required_tags | default(config.tags.required | default(['Name', 'Environment', 'Owner', 'CostCenter'])) }}"
-    tag_aliases: "{{ tag_aliases | default(config.tags.aliases | default({})) }}"
 
   tasks:
     - name: Load configuration defaults
@@ -23,6 +21,11 @@
           - config.aws.region is defined
         fail_msg: >
           Configuration file not found. Ensure the project root contains config/defaults.yml.
+
+    - name: Set effective tag variables
+      ansible.builtin.set_fact:
+        effective_required_tags: "{{ required_tags | default(config.tags.required | default(['Name', 'Environment', 'Owner', 'CostCenter'])) }}"
+        effective_tag_aliases: "{{ tag_aliases | default(config.tags.aliases | default({})) }}"
 
     - name: Gather all EC2 instances
       amazon.aws.ec2_instance_info:
@@ -47,8 +50,8 @@
         instance_tag_keys: "{{ item.tags | default({}) | dict2items | map(attribute='key') | list }}"
         missing: >-
           {% set result = [] %}
-          {% for tag in required_tags %}
-          {%   set alias = tag_aliases[tag] | default(tag) %}
+          {% for tag in effective_required_tags %}
+          {%   set alias = effective_tag_aliases[tag] | default(tag) %}
           {%   if tag not in instance_tag_keys and alias not in instance_tag_keys %}
           {%     set _ = result.append(tag) %}
           {%   endif %}
@@ -65,7 +68,7 @@
           compliant: "{{ compliance_results | selectattr('compliant') | list | length }}"
           non_compliant: "{{ compliance_results | rejectattr('compliant') | list | length }}"
           compliance_rate: "{{ '%0.1f' | format((compliance_results | selectattr('compliant') | list | length) / (compliance_results | length) * 100) }}%"
-          required_tags: "{{ required_tags }}"
+          required_tags: "{{ effective_required_tags }}"
 
     - name: Display non-compliant instances
       ansible.builtin.debug:

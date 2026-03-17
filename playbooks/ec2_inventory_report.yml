@@ -7,7 +7,6 @@
   vars:
     aws_region: "{{ region | default(config.aws.region | default('us-east-1')) }}"
     include_stopped: "{{ include_stopped_instances | default(true) }}"
-    tag_aliases: "{{ tag_aliases | default(config.tags.aliases | default({})) }}"
 
   tasks:
     - name: Load configuration defaults
@@ -23,6 +22,10 @@
           - config.aws.region is defined
         fail_msg: >
           Configuration file not found. Ensure the project root contains config/defaults.yml.
+
+    - name: Set effective tag aliases
+      ansible.builtin.set_fact:
+        effective_tag_aliases: "{{ tag_aliases | default(config.tags.aliases | default({})) }}"
 
     - name: Gather all EC2 instances
       amazon.aws.ec2_instance_info:
@@ -60,9 +63,9 @@
           private_ip: "{{ item.private_ip_address | default('N/A') }}"
           public_ip: "{{ item.public_ip_address | default('N/A') }}"
           name: "{{ item.tags.Name | default('UNTAGGED') }}"
-          environment: "{{ item.tags.Environment | default(item.tags[tag_aliases['Environment'] | default('Environment')] | default('UNTAGGED')) }}"
-          owner: "{{ item.tags.Owner | default(item.tags[tag_aliases['Owner'] | default('Owner')] | default('UNTAGGED')) }}"
-          cost_center: "{{ item.tags.CostCenter | default(item.tags[tag_aliases['CostCenter'] | default('CostCenter')] | default('UNTAGGED')) }}"
+          environment: "{{ item.tags.Environment | default(item.tags[effective_tag_aliases['Environment'] | default('Environment')] | default('UNTAGGED')) }}"
+          owner: "{{ item.tags.Owner | default(item.tags[effective_tag_aliases['Owner'] | default('Owner')] | default('UNTAGGED')) }}"
+          cost_center: "{{ item.tags.CostCenter | default(item.tags[effective_tag_aliases['CostCenter'] | default('CostCenter')] | default('UNTAGGED')) }}"
           platform: "{{ item.platform_details | default('Linux/UNIX') }}"
           vpc_id: "{{ item.vpc_id | default('N/A') }}"
           subnet_id: "{{ item.subnet_id | default('N/A') }}"
